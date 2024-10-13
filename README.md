@@ -1,5 +1,5 @@
-
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://choosealicense.com/licenses/mit/)
+[![Create and publish Docker image](https://github.com/eurofurence/critter-bot/actions/workflows/docker.yml/badge.svg)](https://github.com/eurofurence/critter-bot/actions/workflows/docker.yml)
 
 
 # Critter Bot
