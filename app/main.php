@@ -1,12 +1,13 @@
 <?php
 namespace App;
 
-use App\Database\Database as DB;
+use Psr\Log\NullLogger;
 use SergiX44\Nutgram\Nutgram;
+use App\Commands\StartCommand;
+use App\Database\Database as DB;
 use SergiX44\Nutgram\Configuration;
 use SergiX44\Nutgram\RunningMode\Webhook;
 use SergiX44\Nutgram\Logger\ConsoleLogger;
-use App\Commands\StartCommand;
 
 class Main {
 
@@ -24,11 +25,10 @@ class Main {
         echo "Loading config...\r\n";
         $config = new Configuration(
             botName: $_ENV['BOT_NAME'],
-            testEnv: $_ENV['TEST_ENV'],
-            logger: ConsoleLogger::class
+            logger: ($_ENV['DEBUG'] === 'true') ? ConsoleLogger::class : NullLogger::class //Logs Telegram requests, everything else needs to be logged with an custom logger
         );
 
-        $bot = new Nutgram($_ENV['TELEGRAM_TOKEN']);
+        $bot = new Nutgram($_ENV['TELEGRAM_TOKEN'], $config);
 
         echo "Setting running mode...\r\n";
         //$bot->setRunningMode(Webhook::class);
@@ -41,7 +41,6 @@ class Main {
             echo "[ERROR] No connection to the database\r\n";
             return;
         }
-
 
         #Testing
         $bot->onCommand('start', function (Nutgram $bot) {

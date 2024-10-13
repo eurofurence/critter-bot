@@ -12,7 +12,6 @@ class Database
 
     private function __construct()
     {
-
         switch ($_ENV['DB_CONNECTOR']) {
             case 'pgsql':
                 $this->pdo = new PDO(
