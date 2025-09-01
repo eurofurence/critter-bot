@@ -4,11 +4,20 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+chrono = { version = "0.4.41", features = ["serde"] }
+chrono-tz = { version = "0.10.4", features = ["case-insensitive", "serde"] }
 clap = { version = "4.5.45", features = ["env"] }
 color-eyre = "0.6.5"
 dotenvy = "0.15.7"
-sqlx = { version = "0.8.6", features = ["tls-rustls", "runtime-tokio", "postgres"] }
+hmac = "0.12.1"
+moka = { version = "0.12.10", features = ["future"] }
+reqwest = { version = "0.12.23", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.143"
+sha2 = "0.10.9"
+sqlx = { version = "0.8.6", features = ["tls-rustls", "runtime-tokio", "postgres", "chrono"] }
 teloxide = { version = "0.17.0", features = ["ctrlc_handler", "rustls"], default-features = false }
-tokio = { version = "1.47.1", features = ["rt", "macros", "sync"] }
+tokio = { version = "1.47.1", features = ["rt", "macros", "sync", "time"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+uuid = { version = "1.18.0", features = ["serde", "v4"] }
