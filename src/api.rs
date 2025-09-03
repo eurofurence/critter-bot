@@ -6,6 +6,7 @@ use reqwest::{
     header::{AUTHORIZATION, HeaderMap, HeaderValue},
 };
 use std::{borrow::Cow, iter::repeat, sync::Arc};
+use tracing::error;
 use uuid::Uuid;
 
 use crate::events::Shift;

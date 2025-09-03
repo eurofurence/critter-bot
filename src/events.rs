@@ -81,13 +81,58 @@ pub async fn start_event_processor(state: State) -> eyre::Result<()> {
         let old = state.db.posts(date).await?;
         let new = state.api.shifts(date, state.tz).await?;
 
-        // TODO:
-        // - react to changes if applicable, inform users
-        // - check for pending shifts if they should be notified and if the user has been notified already, if not do so
-        // - update changes in db
         let now = Utc::now();
-        for (shift, change) in scan_iter(&old, &new) {}
-        // - check for day change and if day has been notified and if not send daily notifications
+        for (shift, change) in scan_iter(&old, &new) {
+            match change {
+                Option::None => (),
+                Some(ShiftDiff::Created) => {
+                    state.db.insert_shift(shift).await?;
+                }
+                Some(ShiftDiff::Updated) => {
+                    state.db.update_shift(shift).await?;
+                }
+                Some(ShiftDiff::TimeUpdated { old_start, old_end }) => {
+                    state.db.update_shift(shift).await?;
+                    for c in &shift.critters {
+                        tx.send(Event::UserTimeChanged {
+                            uid: c.2,
+                            shift: shift.clone(),
+                            old_start: old_start.with_timezone(&state.tz),
+                            old_end: old_end.with_timezone(&state.tz),
+                        });
+                    }
+                }
+                Some(ShiftDiff::Deleted) => {
+                    state.db.delete_shift(shift.id).await?;
+                    for c in &shift.critters {
+                        tx.send(Event::UserCanceled {
+                            uid: c.2,
+                            shift: shift.clone(),
+                        });
+                    }
+                    continue;
+                }
+            }
+            if now.signed_duration_since(shift.start).num_minutes().abs() < 15
+                && !state.db.has_been_notified(shift.id).await?
+            {
+                for c in &shift.critters {
+                    tx.send(Event::UserUpcoming {
+                        uid: c.2,
+                        shift: shift.clone(),
+                    });
+                }
+                state.db.notify(shift.id, true).await?;
+            }
+        }
+
+        if let Some(false) = state
+            .db
+            .has_day_been_notified(now.with_timezone(&state.tz).date_naive())
+            .await?
+        {
+            // TODO: inform user of daily stuff
+        }
 
         sleep(Duration::from_secs(state.poll_interval as u64)).await;
     }
@@ -132,6 +177,8 @@ impl Event {
             Event::UserUpcoming { uid, .. } => *uid,
             Event::ManagerUpcoming { uid, .. } => *uid,
             Event::UserDaily { uid, .. } => *uid,
+            Event::UserTimeChanged { uid, .. } => *uid,
+            Event::UserCanceled { uid, .. } => *uid,
         }
     }
 }

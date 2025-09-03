@@ -78,7 +78,75 @@ impl Database {
         Ok(res)
     }
 
-    // pub async fn sync_shift(&self, shift: Shift) -> eyre::Result<Option<SyncDiff>> {
+    pub async fn insert_shift(&self, shift: &Shift) -> eyre::Result<()> {
+        query!(
+            "insert into shifts (id, start, stop, meta) values ($1, $2, $3, $4)",
+            shift.id,
+            shift.start.naive_utc(),
+            shift.end.naive_utc(),
+            serde_json::to_value(&shift)?,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn update_shift(&self, shift: &Shift) -> eyre::Result<()> {
+        query!(
+            "update shifts set meta = $1, start = $2, stop = $3 where id = $4",
+            serde_json::to_value(&shift)?,
+            shift.start.naive_utc(),
+            shift.end.naive_utc(),
+            shift.id,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn delete_shift(&self, id: i64) -> eyre::Result<()> {
+        query!("delete from shifts where id = $1", id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn has_been_notified(&self, id: i64) -> eyre::Result<bool> {
+        Ok(query!("select notified from shifts where id = $1", id)
+            .fetch_one(&self.pool)
+            .await?
+            .notified)
+    }
+
+    pub async fn notify(&self, id: i64, val: bool) -> eyre::Result<()> {
+        query!("update shifts set notified = $1 where id = $2", val, id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn has_day_been_notified(&self, date: NaiveDate) -> eyre::Result<Option<bool>> {
+        Ok(
+            query!("select notified from dates where \"date\" = $1", date)
+                .fetch_optional(&self.pool)
+                .await?
+                .map(|b| b.notified),
+        )
+    }
+
+    pub async fn notify_day(&self, date: NaiveDate, val: bool) -> eyre::Result<()> {
+        query!(
+            "update dates set notified = $1 where \"date\" = $2",
+            val,
+            date
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
     //     let mut tx = self.pool.begin().await?;
 
     //     let Some(meta): Option<Shift> = query!(
@@ -96,14 +164,6 @@ impl Database {
     //         return Ok(None);
     //     }
 
-    //     query!(
-    //         "update shifts set meta = $1 where id = $2",
-    //         serde_json::to_value(&shift)?,
-    //         shift.id,
-    //     )
-    //     .execute(&mut *tx)
-    //     .await?;
-
     //     if shift.start != meta.start || shift.end != meta.end {
     //         query!(
     //             "update shifts set start = $1, stop = $2 where id = $3",
@@ -116,7 +176,6 @@ impl Database {
     //     }
 
     //     todo!()
-    // }
 
     pub async fn posts(&self, date: NaiveDate) -> eyre::Result<Vec<Shift>> {
         let mut stream = query!(

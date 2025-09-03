@@ -126,7 +126,7 @@ async fn main() -> eyre::Result<()> {
         bot,
         db: Database::new(pool, pq_limit),
         tz: *matches.get_one("timezone").unwrap(),
-        poll_interval: matches.get_one::<u32>("pollint").unwrap(),
+        poll_interval: *matches.get_one::<u32>("pollint").unwrap(),
     };
 
     // the bot has self healing properties built in, no need for retry!
