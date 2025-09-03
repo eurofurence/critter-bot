@@ -6,7 +6,7 @@ use reqwest::{
     header::{AUTHORIZATION, HeaderMap, HeaderValue},
 };
 use std::{borrow::Cow, iter::repeat, sync::Arc};
-use tracing::error;
+use tracing::{debug, error};
 use uuid::Uuid;
 
 use crate::events::Shift;
@@ -96,8 +96,8 @@ impl Api {
                 title: shift.title,
                 r#type: shift.r#type,
                 location: shift.location,
-                start: shift.start_ts,
-                end: shift.end_ts,
+                start: DateTime::<Utc>::from_timestamp(shift.start_ts as i64, 0).unwrap(),
+                end: DateTime::<Utc>::from_timestamp(shift.end_ts as i64, 0).unwrap(),
                 critters: shift
                     .assignments
                     .into_iter()
@@ -105,7 +105,7 @@ impl Api {
                         assignment
                             .users
                             .into_iter()
-                            .zip(repeat(assignment.angle_type_name))
+                            .zip(repeat(assignment.angel_type_name))
                             .map(|(user, angle_type_name)| {
                                 (user.user_name, angle_type_name, user.user_id, user.is_staff)
                             })
@@ -130,7 +130,7 @@ impl Api {
             .json::<ApiDates>()
             .await?
             .dates;
-        dates.sort_by_key(|d| d.day);
+        dates.sort_by_key(|d| d.day.parse::<u32>().unwrap());
         Ok(dates.into_iter().map(|d| d.date).collect())
     }
 }
@@ -146,8 +146,8 @@ struct ApiShift {
     title: Arc<str>,
     r#type: Arc<str>,
     location: Arc<str>,
-    start_ts: DateTime<Utc>,
-    end_ts: DateTime<Utc>,
+    start_ts: u64, // DateTime<Utc>,
+    end_ts: u64,   // DateTime<Utc>,
     required: i32,
     eligibility: ApiEligibility,
     assignments: Vec<ApiAssignment>,
@@ -155,7 +155,7 @@ struct ApiShift {
 
 #[derive(serde::Deserialize)]
 struct ApiAssignment {
-    angle_type_name: Arc<str>,
+    angel_type_name: Arc<str>,
     users: Vec<ApiUser>,
 }
 
@@ -182,7 +182,7 @@ struct ApiDates {
 struct ApiDate {
     date: NaiveDate,
     // weekday: ApiWeekday,
-    day: u32,
+    day: String,
     // display: String,
 }
 

@@ -1,4 +1,5 @@
 use color_eyre::eyre;
+use reqwest::StatusCode;
 use teloxide::{dispatching::dialogue::GetChatId, prelude::*};
 use tracing::error;
 use uuid::Uuid;
@@ -58,4 +59,6 @@ pub async fn start_bot(state: State) {
         .build()
         .dispatch()
         .await;
+
+    std::process::exit(0);
 }

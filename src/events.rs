@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
-use color_eyre::eyre;
+use color_eyre::eyre::{self, WrapErr};
 use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
@@ -9,7 +9,7 @@ use std::{
 };
 use teloxide::{prelude::Requester, types::ChatId};
 use tokio::{sync::mpsc::UnboundedReceiver, time::sleep};
-use tracing::{error, trace};
+use tracing::{debug, error, trace};
 
 use crate::State;
 
@@ -54,6 +54,7 @@ pub enum Event {
     },
 }
 
+#[derive(Debug)]
 pub enum ShiftDiff {
     Created,
     Updated,
@@ -73,26 +74,43 @@ pub async fn start_event_processor(state: State) -> eyre::Result<()> {
         trace!("polling data...");
 
         trace!("syncing dates...");
-        let dates = state.api.dates().await?;
-        state.db.sync_dates(&dates).await?;
+        let dates = state.api.dates().await.wrap_err("api dates")?;
+        state.db.sync_dates(&dates).await.wrap_err("db date sync")?;
 
         let date = Utc::now().with_timezone(&state.tz).date_naive();
         trace!(date = date.to_string(), "syncing posts of the day...");
-        let old = state.db.posts(date).await?;
-        let new = state.api.shifts(date, state.tz).await?;
+        let old = state.db.posts(date).await.wrap_err("db posts pull")?;
+        let new = state
+            .api
+            .shifts(date, state.tz)
+            .await
+            .wrap_err("api posts")?;
 
         let now = Utc::now();
         for (shift, change) in scan_iter(&old, &new) {
+            debug!("{change:?} - {}", shift.id);
             match change {
                 Option::None => (),
                 Some(ShiftDiff::Created) => {
-                    state.db.insert_shift(shift).await?;
+                    state
+                        .db
+                        .insert_shift(shift)
+                        .await
+                        .wrap_err("create shift")?;
                 }
                 Some(ShiftDiff::Updated) => {
-                    state.db.update_shift(shift).await?;
+                    state
+                        .db
+                        .update_shift(shift)
+                        .await
+                        .wrap_err("update shift")?;
                 }
                 Some(ShiftDiff::TimeUpdated { old_start, old_end }) => {
-                    state.db.update_shift(shift).await?;
+                    state
+                        .db
+                        .update_shift(shift)
+                        .await
+                        .wrap_err("update shift + time")?;
                     for c in &shift.critters {
                         tx.send(Event::UserTimeChanged {
                             uid: c.2,
@@ -103,7 +121,11 @@ pub async fn start_event_processor(state: State) -> eyre::Result<()> {
                     }
                 }
                 Some(ShiftDiff::Deleted) => {
-                    state.db.delete_shift(shift.id).await?;
+                    state
+                        .db
+                        .delete_shift(shift.id)
+                        .await
+                        .wrap_err("delete shift")?;
                     for c in &shift.critters {
                         tx.send(Event::UserCanceled {
                             uid: c.2,
@@ -322,6 +344,7 @@ impl Display for Event {
 }
 
 pub fn diff_shift(old: Option<&Shift>, new: Option<&Shift>) -> Option<ShiftDiff> {
+    debug!("{} -> {}", old.is_some(), new.is_some());
     if old == new {
         return None;
     }

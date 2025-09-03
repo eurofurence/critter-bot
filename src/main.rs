@@ -36,7 +36,15 @@ async fn main() -> eyre::Result<()> {
     }
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
+        .pretty()
+        .with_line_number(true)
         .init();
+
+    //     let cummies = serde_json::from_str::<api::ApiShift>(
+    //         r#"
+    // {"id":893,"title":"Fursuit lounge: Standard shift","type":"Fursuit lounge: Standard shift","location_id":40,"location":"Hall H: 03 - 04 / Fursuit Lounge","start_ts":1756900800,"end_ts":1756902600,"required":1,"assigned":1,"status":"green","eligibility":{"can_apply":false,"capacity_full":true,"overlaps":false,"needs_cert":true},"eligible_angel_types":[],"is_assigned":false,"my_entry_id":null,"assignments":[{"angel_type_id":41,"angel_type_name":"Fursuit support","users":[{"user_id":490,"user_name":"kalaallitamaroq","is_staff":true,"entry_id":1145}]}],"can_cancel":false}
+    //         "#,
+    //     ).unwrap();
 
     let matches = Command::new("critter-bot")
         .arg(
@@ -81,7 +89,6 @@ async fn main() -> eyre::Result<()> {
                 .long("no-migrate")
                 .action(ArgAction::SetTrue)
                 .help("Prevents migrations from running on bot start, potentially unsafe!")
-                .required(true),
         )
         .arg(
             Arg::new("timezone")
@@ -91,7 +98,6 @@ async fn main() -> eyre::Result<()> {
                 .help("Sets the events timezone using a TZ identifier code, such as `Europe/Berlin`")
                 .default_value("Europe/Berlin")
                 .value_parser(clap::value_parser!(Tz))
-                .required(true),
         )
         .arg(
             Arg::new("pollint")
@@ -99,7 +105,6 @@ async fn main() -> eyre::Result<()> {
                 .help("Interval between every poll to the critter server to sync up tasks in seconds")
                 .default_value("60")
                 .value_parser(RangedU64ValueParser::<u32>::new())
-                .required(true),
         )
         .arg(
             Arg::new("pq-lim")
@@ -107,7 +112,6 @@ async fn main() -> eyre::Result<()> {
                 .help("Sets a limit to how many user lookups the tool can make at once in the database")
                 .value_parser(RangedU64ValueParser::<usize>::new())
                 .default_value("16")
-                .required(true),
         )
         .get_matches();
 

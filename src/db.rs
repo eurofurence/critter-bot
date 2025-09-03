@@ -6,6 +6,7 @@ use sqlx::{PgPool, query, types::Json};
 use std::{sync::Arc, time::Duration};
 use teloxide::types::ChatId;
 use tokio::sync::Semaphore;
+use tracing::debug;
 
 use crate::events::Shift;
 
@@ -79,6 +80,7 @@ impl Database {
     }
 
     pub async fn insert_shift(&self, shift: &Shift) -> eyre::Result<()> {
+        debug!("{}", shift.id);
         query!(
             "insert into shifts (id, start, stop, meta) values ($1, $2, $3, $4)",
             shift.id,
@@ -186,6 +188,7 @@ impl Database {
         let mut shifts = Vec::new();
         while let Some(shift) = stream.next().await {
             shifts.push(shift?.meta.0);
+            debug!("{}", shifts.last().unwrap().id);
         }
         Ok(shifts)
     }
