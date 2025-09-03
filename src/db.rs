@@ -1,10 +1,11 @@
+use chrono::NaiveDate;
 use color_eyre::eyre;
+use futures_util::StreamExt;
 use moka::future::Cache;
 use sqlx::{PgPool, query, types::Json};
 use std::{sync::Arc, time::Duration};
 use teloxide::types::ChatId;
 use tokio::sync::Semaphore;
-use tracing::instrument::WithSubscriber;
 
 use crate::events::Shift;
 
@@ -77,41 +78,80 @@ impl Database {
         Ok(res)
     }
 
-    pub async fn sync_shift(&self, shift: Shift) -> eyre::Result<()> {
-        let mut tx = self.pool.begin().await?;
+    // pub async fn sync_shift(&self, shift: Shift) -> eyre::Result<Option<SyncDiff>> {
+    //     let mut tx = self.pool.begin().await?;
 
-        let Some(meta): Option<Shift> = query!(
-            "select meta as \"meta: Json<Shift>\" from shifts where id = $1",
-            shift.id
+    //     let Some(meta): Option<Shift> = query!(
+    //         "select meta as \"meta: Json<Shift>\" from shifts where id = $1",
+    //         shift.id
+    //     )
+    //     .fetch_optional(&mut *tx)
+    //     .await?
+    //     .map(|rec| rec.meta.0) else {
+    //         todo!("create shift entry");
+
+    //         return Ok(Some(SyncDiff::Created));
+    //     };
+    //     if shift == meta {
+    //         return Ok(None);
+    //     }
+
+    //     query!(
+    //         "update shifts set meta = $1 where id = $2",
+    //         serde_json::to_value(&shift)?,
+    //         shift.id,
+    //     )
+    //     .execute(&mut *tx)
+    //     .await?;
+
+    //     if shift.start != meta.start || shift.end != meta.end {
+    //         query!(
+    //             "update shifts set start = $1, stop = $2 where id = $3",
+    //             shift.start.naive_utc(),
+    //             shift.end.naive_utc(),
+    //             shift.id,
+    //         )
+    //         .execute(&mut *tx)
+    //         .await?;
+    //     }
+
+    //     todo!()
+    // }
+
+    pub async fn posts(&self, date: NaiveDate) -> eyre::Result<Vec<Shift>> {
+        let mut stream = query!(
+            "select meta as \"meta: Json<Shift>\" from shifts where date(start) = $1",
+            date
         )
-        .fetch_optional(&mut *tx)
-        .await?
-        .map(|rec| rec.meta.0) else {
-            todo!("create shift entry")
-        };
-        if shift == meta {
-            return Ok(());
+        .fetch(&self.pool);
+        let mut shifts = Vec::new();
+        while let Some(shift) = stream.next().await {
+            shifts.push(shift?.meta.0);
+        }
+        Ok(shifts)
+    }
+
+    pub async fn sync_dates(&self, cur_dates: &[NaiveDate]) -> eyre::Result<()> {
+        let dates = query!("select \"date\" from dates")
+            .fetch_all(&self.pool)
+            .await?
+            .into_iter()
+            .map(|d| d.date)
+            .collect::<Vec<_>>();
+        let missing = cur_dates.iter().filter(|d| dates.binary_search(d).is_err());
+        let invalid = dates.iter().filter(|d| cur_dates.binary_search(d).is_err());
+
+        for m in missing {
+            query!("insert into dates (\"date\") values ($1)", m)
+                .execute(&self.pool)
+                .await?;
+        }
+        for i in invalid {
+            query!("delete from dates where \"date\" = $1", i)
+                .execute(&self.pool)
+                .await?;
         }
 
-        query!(
-            "update shifts set meta = $1 where id = $2",
-            serde_json::to_value(&shift)?,
-            shift.id,
-        )
-        .execute(&mut *tx)
-        .await?;
-
-        if shift.start != meta.start || shift.end != meta.end {
-            query!(
-                "update shifts set start = $1, stop = $2 where id = $3",
-                shift.start.naive_utc(),
-                shift.end.naive_utc(),
-                shift.id,
-            )
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        todo!()
+        Ok(())
     }
 }

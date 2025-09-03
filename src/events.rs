@@ -1,14 +1,19 @@
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use color_eyre::eyre;
-use std::{fmt::Display, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Display,
+    sync::Arc,
+    time::Duration,
+};
 use teloxide::{prelude::Requester, types::ChatId};
-use tokio::sync::mpsc::UnboundedReceiver;
-use tracing::error;
+use tokio::{sync::mpsc::UnboundedReceiver, time::sleep};
+use tracing::{error, trace};
 
 use crate::State;
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct Shift {
     pub id: i64,
     pub title: Arc<str>,
@@ -20,12 +25,21 @@ pub struct Shift {
     pub critters: Vec<(Arc<str>, Arc<str>, i64, bool)>,
     pub managers: Vec<(Arc<str>, i64)>,
     pub req: usize,
-    /// eligibility/needs_cert
     pub ppe: bool,
 }
 
 pub enum Event {
     UserUpcoming {
+        uid: i64,
+        shift: Shift,
+    },
+    UserTimeChanged {
+        uid: i64,
+        shift: Shift,
+        old_start: DateTime<Tz>,
+        old_end: DateTime<Tz>,
+    },
+    UserCanceled {
         uid: i64,
         shift: Shift,
     },
@@ -40,13 +54,43 @@ pub enum Event {
     },
 }
 
+pub enum ShiftDiff {
+    Created,
+    Updated,
+    TimeUpdated {
+        old_start: DateTime<Utc>,
+        old_end: DateTime<Utc>,
+    },
+    Deleted,
+}
+
+#[tracing::instrument(name = "event_poll", skip(state))]
 pub async fn start_event_processor(state: State) -> eyre::Result<()> {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     tokio::spawn(distribute(state.clone(), rx));
 
-    loop {}
+    loop {
+        trace!("polling data...");
 
-    Ok(())
+        trace!("syncing dates...");
+        let dates = state.api.dates().await?;
+        state.db.sync_dates(&dates).await?;
+
+        let date = Utc::now().with_timezone(&state.tz).date_naive();
+        trace!(date = date.to_string(), "syncing posts of the day...");
+        let old = state.db.posts(date).await?;
+        let new = state.api.shifts(date, state.tz).await?;
+
+        // TODO:
+        // - react to changes if applicable, inform users
+        // - check for pending shifts if they should be notified and if the user has been notified already, if not do so
+        // - update changes in db
+        let now = Utc::now();
+        for (shift, change) in scan_iter(&old, &new) {}
+        // - check for day change and if day has been notified and if not send daily notifications
+
+        sleep(Duration::from_secs(state.poll_interval as u64)).await;
+    }
 }
 
 /// We do some early filtering here to not spawn unnececary task (not like tokio would care), but also to not overwhelm the db, not that this software will ever run on scale haha
@@ -65,14 +109,17 @@ pub async fn distribute(state: State, mut stream: UnboundedReceiver<Event>) {
     }
 }
 
+#[tracing::instrument(name = "bot_event_send", skip(state, event))]
 pub async fn handle_event(state: State, event: Event, cid: ChatId) -> eyre::Result<()> {
     let Err(err) = state.bot.send_message(cid, format!("{}", event)).await else {
+        trace!("send reminder");
         return Ok(());
     };
     if matches!(
         err,
         teloxide::RequestError::Api(teloxide::ApiError::BotBlocked)
     ) {
+        trace!("bot is blocked");
         return Ok(());
     };
 
@@ -179,6 +226,101 @@ impl Display for Event {
 
                 Ok(())
             }
+            Event::UserTimeChanged {
+                uid,
+                shift,
+                old_start,
+                old_end,
+            } => {
+                writeln!(
+                    f,
+                    "**Starttime of shift changed:** {} ({}) as {}",
+                    shift.title,
+                    shift.r#type,
+                    shift.critters.iter().find(|c| c.2 == *uid).unwrap().1
+                )?;
+                writeln!(
+                    f,
+                    "Now Starts: **{} (in {})**, originally {}",
+                    shift.start.with_timezone(&shift.start.timezone()),
+                    shift.start.signed_duration_since(&Utc::now()),
+                    old_start.with_timezone(&shift.start.timezone()),
+                )?;
+                writeln!(
+                    f,
+                    "Ends: **{} ({} total)**, originally {}",
+                    shift.end.with_timezone(&shift.start.timezone()),
+                    shift.end.signed_duration_since(&shift.start),
+                    old_end.with_timezone(&shift.start.timezone()),
+                )?;
+
+                Ok(())
+            }
+            Event::UserCanceled { uid, shift } => {
+                writeln!(
+                    f,
+                    "**Shift canceled:** {} ({}) as {}",
+                    shift.title,
+                    shift.r#type,
+                    shift.critters.iter().find(|c| c.2 == *uid).unwrap().1
+                )?;
+                writeln!(
+                    f,
+                    "You no longer need to show up.\n\nIf you believe this was a mistake please contact the responsible shift manager."
+                )?;
+                Ok(())
+            }
         }
     }
+}
+
+pub fn diff_shift(old: Option<&Shift>, new: Option<&Shift>) -> Option<ShiftDiff> {
+    if old == new {
+        return None;
+    }
+    let Some(old) = old else {
+        return Some(ShiftDiff::Created);
+    };
+    let Some(new) = new else {
+        return Some(ShiftDiff::Deleted);
+    };
+    if old.start != new.start || old.end != new.end {
+        Some(ShiftDiff::TimeUpdated {
+            old_start: old.start,
+            old_end: old.end,
+        })
+    } else {
+        Some(ShiftDiff::Updated)
+    }
+}
+
+fn scan_iter<'a>(
+    old: &'a [Shift],
+    new: &'a [Shift],
+) -> impl Iterator<Item = (&'a Shift, Option<ShiftDiff>)> {
+    let mut keys = HashSet::new();
+    let old = old
+        .into_iter()
+        .map(|s| {
+            keys.insert(s.id);
+            s
+        })
+        .map(|s| (s.id, s))
+        .collect::<HashMap<_, _>>();
+    let new = new
+        .into_iter()
+        .map(|s| {
+            keys.insert(s.id);
+            s
+        })
+        .map(|s| (s.id, s))
+        .collect::<HashMap<_, _>>();
+
+    keys.into_iter().map(move |id| {
+        let old = old.get(&id);
+        let new = new.get(&id);
+        let act = new.or(old).unwrap();
+
+        (*act, diff_shift(old.map(|s| *s), new.map(|s| *s)))
+    })
 }

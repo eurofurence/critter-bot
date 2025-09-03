@@ -3,6 +3,11 @@ create table critters (
     tgid bigint not null unique
 );
 
+create table dates (
+    "date" date not null primary key,
+    notified boolean not null default false
+);
+
 create table shifts (
     id bigint not null primary key,
     start timestamp not null,

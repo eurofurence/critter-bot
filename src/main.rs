@@ -25,6 +25,7 @@ pub struct State {
     bot: Bot,
     db: Database,
     tz: Tz,
+    poll_interval: u32,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -93,6 +94,14 @@ async fn main() -> eyre::Result<()> {
                 .required(true),
         )
         .arg(
+            Arg::new("pollint")
+                .env("POLLINT")
+                .help("Interval between every poll to the critter server to sync up tasks in seconds")
+                .default_value("60")
+                .value_parser(RangedU64ValueParser::<u32>::new())
+                .required(true),
+        )
+        .arg(
             Arg::new("pq-lim")
                 .env("PARALLEL_LOOKUP_LIMIT")
                 .help("Sets a limit to how many user lookups the tool can make at once in the database")
@@ -117,8 +126,10 @@ async fn main() -> eyre::Result<()> {
         bot,
         db: Database::new(pool, pq_limit),
         tz: *matches.get_one("timezone").unwrap(),
+        poll_interval: matches.get_one::<u32>("pollint").unwrap(),
     };
 
+    // the bot has self healing properties built in, no need for retry!
     tokio::spawn(bot::start_bot(state.clone()));
     retry!(events::start_event_processor(state.clone()));
 

@@ -9,6 +9,7 @@ chrono-tz = { version = "0.10.4", features = ["case-insensitive", "serde"] }
 clap = { version = "4.5.45", features = ["env"] }
 color-eyre = "0.6.5"
 dotenvy = "0.15.7"
+futures-util = "0.3.31"
 hmac = "0.12.1"
 moka = { version = "0.12.10", features = ["future"] }
 reqwest = { version = "0.12.23", default-features = false, features = ["json", "rustls-tls"] }

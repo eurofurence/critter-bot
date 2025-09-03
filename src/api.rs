@@ -6,8 +6,6 @@ use reqwest::{
     header::{AUTHORIZATION, HeaderMap, HeaderValue},
 };
 use std::{borrow::Cow, iter::repeat, sync::Arc};
-use teloxide::types::ChatId;
-use tracing::{debug, error, info};
 use uuid::Uuid;
 
 use crate::events::Shift;
@@ -33,6 +31,7 @@ impl Api {
         })
     }
 
+    #[tracing::instrument(name = "api_verify", skip(self))]
     pub async fn verify(
         &self,
         token: Uuid,
@@ -72,6 +71,7 @@ impl Api {
         }
     }
 
+    #[tracing::instrument(name = "api_shifts", skip(self))]
     pub async fn shifts(&self, date: NaiveDate, tz: Tz) -> eyre::Result<Vec<Shift>> {
         // hack but what ever
         let url = Url::parse_with_params(
@@ -119,6 +119,7 @@ impl Api {
             .collect())
     }
 
+    #[tracing::instrument(name = "api_dates", skip(self))]
     pub async fn dates(&self) -> eyre::Result<Vec<NaiveDate>> {
         let mut dates = self
             .client
